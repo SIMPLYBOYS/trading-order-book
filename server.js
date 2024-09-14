@@ -1,90 +1,95 @@
+// Import required modules
 const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
+
+// Initialize Express app
 const app = express();
 const port = 3000;
 
 // Enable CORS for all routes
 app.use(cors());
 
-// Binance API endpoint for fetching the best bid and ask prices
+// Define constants for Binance API URL and trading pair
 const BINANCE_API_URL = 'https://api.binance.com/api/v3/ticker/bookTicker';
-
-// Correct trading pair symbol
 const TRADING_PAIR = 'ETHBTC';
 
-// Function to generate random order size
+// Initialize order book object
+let orderBook = { bids: [], asks: [] };
+
+// Generate a random size for order book entries
 function generateRandomSize() {
-    return Math.random() * 10; // Random size between 0 and 10
+    return Math.random() * 10;
 }
 
-// Function to generate random price difference
+// Generate a random price difference for order book entries
 function generateRandomPriceDiff() {
-    return Math.random() * 0.0001; // Small random price difference
+    return Math.random() * 0.0001;
 }
 
-// Function to generate order book
-function generateOrderBook(bestBid, bestAsk, depth = 10) {
+// Generate a simulated order book based on best bid and ask prices
+function generateOrderBook(bestBid, bestAsk) {
     let bids = [];
     let asks = [];
 
     let currentBidPrice = parseFloat(bestBid);
     let currentAskPrice = parseFloat(bestAsk);
+    let bidSum = 0;
+    let askSum = 0;
 
-    for (let i = 0; i < depth; i++) {
-        // Generate bid
+    // Generate bid orders
+    while (bidSum < 5) {
+        const size = generateRandomSize();
+        const total = currentBidPrice * size;
+        if (bidSum + total > 5) break;
         bids.push({
             price: currentBidPrice.toFixed(8),
-            size: generateRandomSize().toFixed(8)
+            size: size.toFixed(8)
         });
+        bidSum += total;
         currentBidPrice -= generateRandomPriceDiff();
+    }
 
-        // Generate ask
+    // Generate ask orders
+    while (askSum < 150) {
+        const size = generateRandomSize();
+        if (askSum + size > 150) break;
         asks.push({
             price: currentAskPrice.toFixed(8),
-            size: generateRandomSize().toFixed(8)
+            size: size.toFixed(8)
         });
+        askSum += size;
         currentAskPrice += generateRandomPriceDiff();
     }
 
-    return { bids, asks };
+    return { bids, asks, bidSum: bidSum.toFixed(8), askSum: askSum.toFixed(8) };
 }
 
-// API endpoint to get the order book
-app.get('/orderbook', async (req, res) => {
+// Fetch current best bid and ask prices from Binance API and update the order book
+async function updateOrderBook() {
     try {
-        // Fetch best bid and ask prices from Binance API
         const response = await axios.get(BINANCE_API_URL, {
             params: { symbol: TRADING_PAIR },
-            timeout: 5000 // 5 seconds timeout
+            timeout: 5000
         });
-
-        console.log('Binance API response:', response.data);
 
         const { bidPrice, askPrice } = response.data;
-
-        if (!bidPrice || !askPrice) {
-            throw new Error('Invalid data received from Binance API');
-        }
-
-        // Generate order book based on fetched prices
-        const orderBook = generateOrderBook(bidPrice, askPrice);
-
-        res.json(orderBook);
+        orderBook = generateOrderBook(bidPrice, askPrice);
+        console.log('Order book updated:', new Date().toISOString());
     } catch (error) {
-        console.error('Error fetching data from Binance:', error.message);
-        if (error.response) {
-            console.error('Error response:', error.response.data);
-            console.error('Error status:', error.response.status);
-        } else if (error.request) {
-            console.error('No response received:', error.request);
-        }
-        res.status(500).json({ 
-            error: 'Failed to fetch order book data', 
-            details: error.message,
-            binanceError: error.response ? error.response.data : null
-        });
+        console.error('Error updating order book:', error.message);
     }
+}
+
+// Update order book every 30 seconds
+setInterval(updateOrderBook, 30000);
+
+// Initial update
+updateOrderBook();
+
+// Define route to get the current order book
+app.get('/orderbook', (req, res) => {
+    res.json(orderBook);
 });
 
 // Start the server
