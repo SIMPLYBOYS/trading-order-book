@@ -1,28 +1,33 @@
-// Import required modules
 const express = require('express');
-const axios = require('axios');
+const http = require('http');
+const WebSocket = require('ws');
+const socketIo = require('socket.io');
 const cors = require('cors');
 
-// Initialize Express app
 const app = express();
-const port = 3000;
+const server = http.createServer(app);
+const io = socketIo(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
 
-// Enable CORS for all routes
 app.use(cors());
 
-// Define constants for Binance API URL and trading pair
-const BINANCE_API_URL = 'https://api.binance.com/api/v3/ticker/bookTicker';
-const TRADING_PAIR = 'ETHBTC';
+// WebSocket URL for Binance ETH/BTC book ticker
+const BINANCE_WS_URL = 'wss://stream.binance.com:9443/ws/ethbtc@bookTicker';
+const port = 3000;
 
-// Initialize order book object
-let orderBook = { bids: [], asks: [] };
+// Initialize order book structure
+let orderBook = { bids: [], asks: [], bidSum: '0', askSum: '0' };
 
-// Generate a random size for order book entries
+// Generate a random size for an order
 function generateRandomSize() {
     return Math.random() * 10;
 }
 
-// Generate a random price difference for order book entries
+// Generate a random price difference
 function generateRandomPriceDiff() {
     return Math.random() * 0.0001;
 }
@@ -65,35 +70,67 @@ function generateOrderBook(bestBid, bestAsk) {
     return { bids, asks, bidSum: bidSum.toFixed(8), askSum: askSum.toFixed(8) };
 }
 
-// Fetch current best bid and ask prices from Binance API and update the order book
-async function updateOrderBook() {
-    try {
-        const response = await axios.get(BINANCE_API_URL, {
-            params: { symbol: TRADING_PAIR },
-            timeout: 5000
-        });
+// Connect to Binance WebSocket and handle incoming data
+function connectToBinance() {
+    const ws = new WebSocket(BINANCE_WS_URL);
 
-        const { bidPrice, askPrice } = response.data;
-        orderBook = generateOrderBook(bidPrice, askPrice);
-        console.log('Order book updated:', new Date().toISOString());
-    } catch (error) {
-        console.error('Error updating order book:', error.message);
-    }
+    ws.on('open', () => {
+        console.log('Connected to Binance WebSocket');
+    });
+
+    ws.on('message', (data) => {
+        try {
+            const { b: bidPrice, a: askPrice } = JSON.parse(data);
+            orderBook = generateOrderBook(bidPrice, askPrice);
+            io.emit('orderBookUpdate', orderBook);
+        } catch (error) {
+            console.error('Error processing message:', error);
+        }
+    });
+
+    ws.on('error', (error) => {
+        console.error('WebSocket error:', error);
+    });
+
+    return ws;
 }
 
-// Update order book every 30 seconds
-setInterval(updateOrderBook, 30000);
+// Initialize WebSocket connection
+let binanceWs = connectToBinance();
 
-// Initial update
-updateOrderBook();
+// Handle WebSocket closure and attempt reconnection
+binanceWs.on('close', (code, reason) => {
+    console.log(`Binance WebSocket closed. Code: ${code}, Reason: ${reason.toString()}`);
+    console.log('Attempting to reconnect in 5 seconds...');
+    setTimeout(connectToBinance, 5000);
+});
 
-// Define route to get the current order book
+// Handle new Socket.IO client connections
+io.on('connection', (socket) => {
+    console.log('New client connected');
+    socket.emit('orderBookUpdate', orderBook);
+
+    socket.on('disconnect', () => {
+        console.log('Client disconnected');
+    });
+});
+
+// API endpoint to get current order book
 app.get('/orderbook', (req, res) => {
     res.json(orderBook);
 });
 
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception:', error);
+});
+
 // Start the server
-app.listen(port, () => {
+server.listen(port, () => {
     console.log(`Order book server running on port ${port}`);
-    console.log(`Fetching order book data for ${TRADING_PAIR}`);
 });
