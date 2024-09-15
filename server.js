@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
@@ -17,7 +18,6 @@ app.use(cors());
 
 // WebSocket URL for Binance ETH/BTC book ticker
 const BINANCE_WS_URL = 'wss://stream.binance.com:9443/ws/ethbtc@bookTicker';
-const port = 3000;
 
 // Initialize order book structure
 let orderBook = { bids: [], asks: [], bidSum: '0', askSum: '0' };
@@ -130,7 +130,8 @@ process.on('uncaughtException', (error) => {
     console.error('Uncaught Exception:', error);
 });
 
+const PORT = process.env.PORT || 3000;
 // Start the server
-server.listen(port, () => {
-    console.log(`Order book server running on port ${port}`);
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
